@@ -10,7 +10,7 @@
     </parent>
 
     <groupId>com.lts</groupId>
-    <artifactId>Reggie</artifactId>
+    <artifactId>MyReggie</artifactId>
     <version>0.0.1-SNAPSHOT</version>
 
     <properties>
