@@ -15,6 +15,7 @@ import com.lts.service.SetmealDishService;
 import com.lts.service.SetmealService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +33,9 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements Di
 
     @Autowired
     private SetmealService setmealService;
+
+    @Autowired
+    private RedisTemplate redisTemplate;
 
     @Override
     @Transactional //操作多张表，开启事务
@@ -53,6 +57,10 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements Di
 
 //        批处理保存
         dishFlavorService.saveBatch(flavors);
+
+//        更新完之后清空redis中对应的缓存数据
+        String key = "category_" + dishDto.getCategoryId() + "_" + dishDto.getStatus();
+        redisTemplate.delete(key);
     }
 
 
@@ -92,11 +100,25 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements Di
         }).collect(Collectors.toList());
 
         dishFlavorService.saveBatch(flavors);
+
+//        更新完之后清空redis中对应的缓存数据
+        String key = "category_" + dishDto.getCategoryId() + "_" + dishDto.getStatus();
+        redisTemplate.delete(key);
     }
 
     @Override
     @Transactional
     public String updateSellStatusWithSetmeal(int status, List<Long> ids) {
+
+//      根据菜品id删除redis中对应分类的缓存
+        LambdaQueryWrapper<Dish> dishLambdaQueryWrapper = new LambdaQueryWrapper<>();
+        dishLambdaQueryWrapper.in(Dish::getId, ids);
+        List<Dish> dishList = this.list(dishLambdaQueryWrapper);
+
+        for (Dish dish : dishList) {
+            String key = "category_" + dish.getCategoryId() + "_1";
+            redisTemplate.delete(key);
+        }
 
 //      根据dishId更改dish表中的status
         LambdaUpdateWrapper<Dish> updateWrapper = new LambdaUpdateWrapper<>();
@@ -105,13 +127,19 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements Di
         this.update(updateWrapper);
 
 //      根据dishId更新setmeal中的status
-        if (status == 0){
+        if (status == 0) {
 //          设置某个菜品status为停售，则将该菜品对应的套餐status也设为停售
 //          根据dishId在setmeal_dish表中查找setmealId
             LambdaQueryWrapper<SetmealDish> queryWrapper = new LambdaQueryWrapper<>();
             queryWrapper.in(SetmealDish::getDishId, ids);
             List<SetmealDish> setmealDishes = setmealDishService.list(queryWrapper);
             List<Long> setmealIds = setmealDishes.stream().map(SetmealDish::getSetmealId).collect(Collectors.toList());
+
+//            如果没有查询出套餐信息，直接返回
+            if (setmealDishes.size() == 0){
+                return "";
+            }
+
             setmealIds = setmealIds.stream().distinct().collect(Collectors.toList());
 
 //          查询菜品对应的套餐状态
@@ -129,7 +157,7 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements Di
                 setmealService.update(setmealLambdaUpdateWrapper);
 
                 LambdaQueryWrapper<Setmeal> setmealLambdaQueryWrapper1 = new LambdaQueryWrapper<>();
-                setmealLambdaQueryWrapper1.in(Setmeal::getId,setmealIds);
+                setmealLambdaQueryWrapper1.in(Setmeal::getId, setmealIds);
                 List<Setmeal> setmealList = setmealService.list(setmealLambdaQueryWrapper1);
                 List<String> setmealNames = setmealList.stream().map(Setmeal::getName).collect(Collectors.toList());
                 return setmealNames.toString();
@@ -137,7 +165,7 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements Di
 //          已经全部停售，跳出方法
                 return "";
             }
-        }else {
+        } else {
             return "status1";
         }
 
@@ -146,20 +174,35 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements Di
     @Override
     public List<DishDto> getDishListById(Dish dish) {
 
+        List<DishDto> dishDtoList;
+//        从redis中获取数据
+        String key = "category_" + dish.getCategoryId() + "_" + dish.getStatus();
+        dishDtoList = (List<DishDto>) redisTemplate.opsForValue().get(key);
+
+        if (dishDtoList != null) {
+//        如果能获取到，直接返回
+            return dishDtoList;
+        }
+
+//        如果获取不到，查询数据库，再封装到redis中
         LambdaQueryWrapper<Dish> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(Dish::getCategoryId, dish.getCategoryId());
         List<Dish> dishList = this.list(queryWrapper);
 
-        return dishList.stream().map((item) -> {
+        dishDtoList = dishList.stream().map((item) -> {
             DishDto dishDto = new DishDto();
 
-            BeanUtils.copyProperties(item,dishDto);
+            BeanUtils.copyProperties(item, dishDto);
             LambdaQueryWrapper<DishFlavor> dishFlavorLambdaQueryWrapper = new LambdaQueryWrapper<>();
-            dishFlavorLambdaQueryWrapper.eq(DishFlavor::getDishId,item.getId());
+            dishFlavorLambdaQueryWrapper.eq(DishFlavor::getDishId, item.getId());
             List<DishFlavor> dishFlavorList = dishFlavorService.list(dishFlavorLambdaQueryWrapper);
 
             dishDto.setFlavors(dishFlavorList);
             return dishDto;
         }).collect(Collectors.toList());
+
+//        将结果添加到redis中
+        redisTemplate.opsForValue().set(key, dishDtoList);
+        return dishDtoList;
     }
 }
