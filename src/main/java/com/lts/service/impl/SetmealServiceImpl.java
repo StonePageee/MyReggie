@@ -15,6 +15,7 @@ import com.lts.service.SetmealService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +33,9 @@ public class SetmealServiceImpl extends ServiceImpl<SetmealMapper, Setmeal> impl
     @Lazy
     private DishService dishService;
 
+    @Autowired
+    private RedisTemplate redisTemplate;
+
     /**
      * 将数据存放到两张表
      *
@@ -46,7 +50,6 @@ public class SetmealServiceImpl extends ServiceImpl<SetmealMapper, Setmeal> impl
 //        将套餐中菜品信息存到setmeal_dish表中
 //        获取当前套餐id
         Long setmealId = setmealDto.getId();
-
         List<SetmealDish> setmealDishes = setmealDto.getSetmealDishes();
 
 //        将套餐id添加给每个菜品
@@ -56,21 +59,23 @@ public class SetmealServiceImpl extends ServiceImpl<SetmealMapper, Setmeal> impl
         }).collect(Collectors.toList());
 
         setmealDishService.saveBatch(setmealDishes);
+
+//        删除redis中对应的数据
+        String key = "category_setmeal" + setmealDto.getCategoryId();
+        redisTemplate.delete(key);
     }
 
     @Override
     public SetmealDto getByDish(Long id) {
 //        将根据id查询出来的信息封装到sermealDto中
         SetmealDto setmealDto = new SetmealDto();
-
         Setmeal setmeal = this.getById(id);
-
         BeanUtils.copyProperties(setmeal, setmealDto);
 
         LambdaQueryWrapper<SetmealDish> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(SetmealDish::getSetmealId, id);
         List<SetmealDish> setmealDishes = setmealDishService.list(queryWrapper);
-
+//      将查询出来的菜品封装到setmealDto中
         setmealDto.setSetmealDishes(setmealDishes);
 
         return setmealDto;
@@ -92,12 +97,17 @@ public class SetmealServiceImpl extends ServiceImpl<SetmealMapper, Setmeal> impl
         }).collect(Collectors.toList());
 
         setmealDishService.saveBatch(setmealDishes);
+
+        String key = "category_setmeal" + setmealDto.getCategoryId();
+        redisTemplate.delete(key);
     }
 
     @Override
     @Transactional
     public void removeWithStatus(Long[] ids) {
 
+//        判断套餐是否在售卖
+//        通过id查询套餐
         LambdaQueryWrapper<Setmeal> queryWrapper = new LambdaQueryWrapper<>();
         for (Long id : ids) {
             queryWrapper.eq(Setmeal::getId, id)
@@ -110,8 +120,16 @@ public class SetmealServiceImpl extends ServiceImpl<SetmealMapper, Setmeal> impl
                 throw new CustomException("正在售卖的商品不可以删除！");
             }
         }
+//        套餐中不包含正在售卖的菜品
         this.remove(queryWrapper);
 
+//        循环删除redis中对应的套餐记录
+        for (Setmeal setmeal : setmeals) {
+            String key = "category_setmeal" + setmeal.getCategoryId();
+            redisTemplate.delete(key);
+        }
+
+//      删除setmealDish表中套餐中的菜品
         LambdaQueryWrapper<SetmealDish> setmealDishLambdaQueryWrapper = new LambdaQueryWrapper<>();
         for (Long id : ids) {
             setmealDishLambdaQueryWrapper.eq(SetmealDish::getSetmealId, id)
@@ -120,59 +138,29 @@ public class SetmealServiceImpl extends ServiceImpl<SetmealMapper, Setmeal> impl
         setmealDishService.remove(setmealDishLambdaQueryWrapper);
     }
 
-//    @Override
-//    @Transactional
-//    public void updateWIthDishStatus(int status, List<Long> ids) {
-//
-//        for (int i = 0; i < ids.size(); i++) {
-//            Long setmealId = ids.get(i);
-//
-//        }
-
-////        起售之前判断套餐中的菜品是否有停售
-////        通过setmealId查询包含的DishId
-//        LambdaQueryWrapper<SetmealDish> setmealDishLambdaQueryWrapper = new LambdaQueryWrapper<>();
-//        setmealDishLambdaQueryWrapper.in(SetmealDish::getSetmealId, ids);
-//        List<SetmealDish> setmealDishes = setmealDishService.list(setmealDishLambdaQueryWrapper);
-//        List<Long> dishIds = setmealDishes.stream().map(SetmealDish::getDishId).collect(Collectors.toList());
-//
-////        通过dishId查询菜品状态
-//        LambdaQueryWrapper<Dish> dishLambdaQueryWrapper = new LambdaQueryWrapper<>();
-//        dishLambdaQueryWrapper.in(Dish::getId, dishIds);
-//        List<Dish> dishes = dishService.list(dishLambdaQueryWrapper);
-//        List<Integer> dishStatus = dishes.stream().map(Dish::getStatus).collect(Collectors.toList());
-//
-////          获取菜品name
-//        List<String> dishesName = dishes.stream().map(Dish::getName).collect(Collectors.toList());
-//
-////        判断是否有停售菜品
-//        if (dishStatus.contains(0)) {
-////            查询出停售菜品在集合中的索引
-//            List<Integer> dishStatusIsZero = new ArrayList<>();
-//            for (int i = 0; i < dishes.size(); i++) {
-//                if (dishStatus.get(i).equals(0)) {
-//                    dishStatusIsZero.add(i);
-//                }
-//            }
-////            通过停售菜品的索引查询对应的name
-//            List<String> dishStatusIsZeroName = new ArrayList<>();
-//            for (Integer integer : dishStatusIsZero) {
-//                dishStatusIsZeroName.add(dishesName.get(integer));
-//            }
-//
-//            throw new CustomException("选中套餐中关联停售菜品" + dishStatusIsZeroName + "，暂时不可启售！");
-//        } else {
-//            LambdaUpdateWrapper<Setmeal> updateWrapper = new LambdaUpdateWrapper<>();
-//            updateWrapper.set(Setmeal::getStatus, status);
-//            updateWrapper.in(Setmeal::getId, ids);
-//            this.update(updateWrapper);
-//        }
-//    }
-
     @Override
-    public void updateWIthDishStatus(int status, List<Long> ids) {
+    public void updateWithDishStatus(int status, List<Long> ids) {
 
-//        定义一个保存包含停售菜品的套餐的集合
+//        如果是停售套餐，则直接停售，不需要考虑菜品
+        if (status == 0) {
+            LambdaUpdateWrapper<Setmeal> updateWrapper = new LambdaUpdateWrapper<>();
+            updateWrapper.set(Setmeal::getStatus, status);
+            updateWrapper.in(Setmeal::getId, ids);
+            this.update(updateWrapper);
+
+            LambdaQueryWrapper<Setmeal> queryWrapper = new LambdaQueryWrapper<>();
+            queryWrapper.in(Setmeal::getId, ids);
+            List<Setmeal> setmealList = this.list(queryWrapper);
+
+            for (Setmeal setmeal : setmealList) {
+                String key = "category_setemeal" + setmeal.getCategoryId();
+                redisTemplate.delete(key);
+            }
+            return;
+        }
+
+//        如果是启售套餐，则需要判断套餐中包含菜品的状态，如果有未启售的菜品，则套餐也不能启售
+//        定义一个包含停售菜品的套餐的集合
         int containsDishStatusIsZeroCount = 0;
 
 //        记录更新套餐数量
@@ -187,6 +175,7 @@ public class SetmealServiceImpl extends ServiceImpl<SetmealMapper, Setmeal> impl
 
         List<Integer> dishStatus;
 
+//        判断每一个套餐中是否包含停售菜品
         for (Long setmealId : ids) {
             LambdaQueryWrapper<SetmealDish> setmealDishLambdaQueryWrapper = new LambdaQueryWrapper<>();
             setmealDishLambdaQueryWrapper.eq(SetmealDish::getSetmealId, setmealId);
@@ -197,7 +186,6 @@ public class SetmealServiceImpl extends ServiceImpl<SetmealMapper, Setmeal> impl
             dishLambdaQueryWrapper.in(Dish::getId, dishIds);
             dishes = dishService.list(dishLambdaQueryWrapper);
             dishStatus = dishes.stream().map(Dish::getStatus).collect(Collectors.toList());
-
             dishesName = dishes.stream().map(Dish::getName).collect(Collectors.toList());
 
             if (dishStatus.contains(0)) {
@@ -216,28 +204,45 @@ public class SetmealServiceImpl extends ServiceImpl<SetmealMapper, Setmeal> impl
                 updateWrapper.set(Setmeal::getStatus, status).eq(Setmeal::getId, setmealId);
                 this.update(updateWrapper);
                 updateSetmealCount++;
+
+                LambdaQueryWrapper<Setmeal> queryWrapper = new LambdaQueryWrapper<>();
+                queryWrapper.eq(Setmeal::getId, setmealId);
+                Setmeal setmeal = this.getOne(queryWrapper);
+                String key = "category_setmeal" + setmeal.getCategoryId();
+                redisTemplate.delete(key);
             }
         }
-
+//      去重
         dishStatusIsZeroName = dishStatusIsZeroName.stream().distinct().collect(Collectors.toList());
 
         if (containsDishStatusIsZeroCount > 0 && updateSetmealCount > 0) {
-
             throw new CustomException("已更新部分套餐状态，包含停售菜品" + dishStatusIsZeroName + "的套餐暂不可启售！");
         } else if (containsDishStatusIsZeroCount == ids.size() && updateSetmealCount == 0) {
-
-            throw new CustomException("选中套餐均包含停售菜品" + dishStatusIsZeroName + "，暂不可启售！");
-        } else if (containsDishStatusIsZeroCount == 0 && updateSetmealCount == ids.size()) {
-            return;
+            throw new CustomException("选中套餐包含停售菜品" + dishStatusIsZeroName + "，暂不可启售！");
         }
     }
 
     @Override
     public List<Setmeal> getListById(Setmeal setmeal) {
 
+        String key = "category_setmeal" + setmeal.getCategoryId();
+//        先从redis中获取数据
+        List<Setmeal> setmealList = (List<Setmeal>) redisTemplate.opsForValue().get(key);
+
+        if (setmealList != null) {
+//            从redis中获取到数据，直接返回
+            return setmealList;
+        }
+
+//      从redis中没有获取到数据，从数据库中获取
         LambdaQueryWrapper<Setmeal> setmealLambdaQueryWrapper = new LambdaQueryWrapper<>();
-        setmealLambdaQueryWrapper.eq(Setmeal::getCategoryId,setmeal.getCategoryId());
-        return this.list(setmealLambdaQueryWrapper);
+        setmealLambdaQueryWrapper.eq(Setmeal::getCategoryId, setmeal.getCategoryId())
+                .eq(Setmeal::getStatus,1);
+        List<Setmeal> setmeals = this.list(setmealLambdaQueryWrapper);
+
+//        将数据存入redis中
+        redisTemplate.opsForValue().set(key, setmeals);
+        return setmeals;
     }
 }
 

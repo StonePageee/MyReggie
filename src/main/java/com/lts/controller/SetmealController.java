@@ -95,6 +95,7 @@ public class SetmealController {
 
     /**
      * 更新套餐信息
+     *
      * @param setmealDto
      * @return
      */
@@ -106,7 +107,8 @@ public class SetmealController {
     }
 
     /**
-     * 更改套餐启/停售状态
+     * 根据菜品status更改套餐启/停售状态
+     *
      * @param status
      * @param ids
      * @return
@@ -114,20 +116,13 @@ public class SetmealController {
     @PostMapping("/status/{status}")
     public R<String> sellStatus(@PathVariable int status, @RequestParam(required = false) List<Long> ids) {
 
-        if (status == 0){
-            LambdaUpdateWrapper<Setmeal> updateWrapper = new LambdaUpdateWrapper<>();
-            updateWrapper.set(Setmeal::getStatus,status);
-            updateWrapper.in(Setmeal::getId,ids);
-            setmealService.update(updateWrapper);
-            return R.success("状态更改成功！");
-        }else {
-            setmealService.updateWIthDishStatus(status,ids);
-            return R.success("状态更改成功！");
-        }
+        setmealService.updateWithDishStatus(status, ids);
+        return R.success("状态更改成功！");
     }
 
     /**
      * 根据ids删除两个表中的数据
+     *
      * @param ids
      * @return
      */
@@ -140,11 +135,12 @@ public class SetmealController {
 
     /**
      * 根据套餐id查询套餐下的菜品
+     *
      * @param setmeal
      * @return
      */
     @GetMapping("/list")
-    public R<List<Setmeal>> list(Setmeal setmeal){
+    public R<List<Setmeal>> list(Setmeal setmeal) {
 
         return R.success(setmealService.getListById(setmeal));
     }
