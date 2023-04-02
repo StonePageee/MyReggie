@@ -2,6 +2,8 @@ server:
   port: 8080
 
 spring:
+  main:
+    allow-bean-definition-overriding: true
   application:
     name: reggie
   redis:
@@ -9,12 +11,35 @@ spring:
     port: 6379
     password: redis
     database: 0
-  datasource:
-    druid:
-      driver-class-name: com.mysql.cj.jdbc.Driver
-      url: jdbc:mysql://localhost:3306/reggie?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true
-      username: root
-      password: root
+  shardingsphere:
+    datasource:
+      names: master,slave
+      master:
+        type: com.alibaba.druid.pool.DruidDataSource
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        url: jdbc:mysql://192.168.254.135:3306/reggie?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true
+        username: root
+        password: root
+      slave:
+        type: com.alibaba.druid.pool.DruidDataSource
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        url: jdbc:mysql://192.168.254.136:3306/reggie?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true
+        username: root
+        password: root
+    masterslave:
+      load-balance-algorithm-type: round_robin
+      name: dataSource
+      master-data-source-name: master
+      slave-data-source-names: slave
+#    props:
+#      sql:
+#        show: true 开启sql显示
+#  datasource:
+#    druid:
+#      driver-class-name: com.mysql.cj.jdbc.Driver
+#      url: jdbc:mysql://localhost:3306/reggie?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true
+#      username: root
+#      password: root
 
 mybatis-plus:
   configuration:
