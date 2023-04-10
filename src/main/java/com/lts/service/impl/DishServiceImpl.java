@@ -19,6 +19,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -136,7 +137,7 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements Di
             List<Long> setmealIds = setmealDishes.stream().map(SetmealDish::getSetmealId).collect(Collectors.toList());
 
 //            如果没有查询出套餐信息，直接返回
-            if (setmealDishes.size() == 0){
+            if (setmealDishes.size() == 0) {
                 return "";
             }
 
@@ -171,6 +172,12 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements Di
 
     }
 
+    /**
+     * 根据分类id获取对应菜品数据
+     *
+     * @param dish
+     * @return
+     */
     @Override
     public List<DishDto> getDishListById(Dish dish) {
 
@@ -185,24 +192,33 @@ public class DishServiceImpl extends ServiceImpl<DishMapper, Dish> implements Di
         }
 
 //        如果获取不到，查询数据库，再封装到redis中
-        LambdaQueryWrapper<Dish> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(Dish::getCategoryId, dish.getCategoryId());
-        List<Dish> dishList = this.list(queryWrapper);
+        synchronized (this) {
+//            进入synchronized要再次查询一次redis，防止上一个抢到锁的线程更新了数据
+            dishDtoList = (List<DishDto>) redisTemplate.opsForValue().get(key);
+            if (dishDtoList != null) {
+                return dishDtoList;
+            }
 
-        dishDtoList = dishList.stream().map((item) -> {
-            DishDto dishDto = new DishDto();
+            LambdaQueryWrapper<Dish> queryWrapper = new LambdaQueryWrapper<>();
+            queryWrapper.eq(Dish::getCategoryId, dish.getCategoryId());
+            List<Dish> dishList = this.list(queryWrapper);
 
-            BeanUtils.copyProperties(item, dishDto);
-            LambdaQueryWrapper<DishFlavor> dishFlavorLambdaQueryWrapper = new LambdaQueryWrapper<>();
-            dishFlavorLambdaQueryWrapper.eq(DishFlavor::getDishId, item.getId());
-            List<DishFlavor> dishFlavorList = dishFlavorService.list(dishFlavorLambdaQueryWrapper);
+            dishDtoList = dishList.stream().map((item) -> {
+                DishDto dishDto = new DishDto();
 
-            dishDto.setFlavors(dishFlavorList);
-            return dishDto;
-        }).collect(Collectors.toList());
+                BeanUtils.copyProperties(item, dishDto);
+                LambdaQueryWrapper<DishFlavor> dishFlavorLambdaQueryWrapper = new LambdaQueryWrapper<>();
+                dishFlavorLambdaQueryWrapper.eq(DishFlavor::getDishId, item.getId());
+                List<DishFlavor> dishFlavorList = dishFlavorService.list(dishFlavorLambdaQueryWrapper);
+
+                dishDto.setFlavors(dishFlavorList);
+                return dishDto;
+            }).collect(Collectors.toList());
 
 //        将结果添加到redis中
-        redisTemplate.opsForValue().set(key, dishDtoList);
-        return dishDtoList;
+            Duration expire = Duration.ofHours(2L).plus(Duration.ofSeconds((int) (Math.random() * 100)));
+            redisTemplate.opsForValue().set(key, dishDtoList, expire);
+            return dishDtoList;
+        }
     }
 }

@@ -33,5 +33,4 @@ public class GlobalExceptionHandler {
 
         return R.error(ex.getMessage());
     }
-
 }

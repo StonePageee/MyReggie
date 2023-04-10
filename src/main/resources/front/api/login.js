@@ -20,5 +20,3 @@ function loginoutApi() {
     'method': 'post',
   })
 }
-
-  

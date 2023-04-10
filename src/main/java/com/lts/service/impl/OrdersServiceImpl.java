@@ -2,11 +2,15 @@ package com.lts.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.lts.common.CustomException;
+import com.lts.dto.OrdersDto;
 import com.lts.entity.*;
 import com.lts.mapper.OrdersMapper;
 import com.lts.service.*;
+import org.apache.commons.lang.StringUtils;
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -99,5 +103,64 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
 
         //清空购物车数据
         shoppingCartService.remove(wrapper);
+    }
+
+    @Override
+    public Page<OrdersDto> getListByCondition(int page, int pageSize, String number, String beginTime, String endTime) {
+
+        Page<Orders> ordersPage = new Page<>(page,pageSize);
+        Page<OrdersDto> ordersDtoPage = new Page<>();
+
+        LambdaQueryWrapper<Orders> ordersLambdaQueryWrapper = new LambdaQueryWrapper<>();
+        ordersLambdaQueryWrapper.eq(StringUtils.isNotEmpty(number),Orders::getNumber,number);
+        ordersLambdaQueryWrapper.between(StringUtils.isNotEmpty(beginTime),Orders::getOrderTime,beginTime,endTime);
+
+        this.page(ordersPage,ordersLambdaQueryWrapper);
+
+        BeanUtils.copyProperties(ordersPage,ordersDtoPage,"records");
+        List<Orders> ordersPageRecords = ordersPage.getRecords();
+
+        List<OrdersDto> ordersDtoRecords = ordersPageRecords.stream().map((item) -> {
+
+            OrdersDto ordersDto = new OrdersDto();
+            BeanUtils.copyProperties(item,ordersDto);
+
+            User user = userService.getById(item.getUserId());
+            ordersDto.setUserName(user.getName());
+            return ordersDto;
+        }).collect(Collectors.toList());
+
+        ordersDtoPage.setRecords(ordersDtoRecords);
+        return ordersDtoPage;
+    }
+
+    @Override
+    public Page<OrdersDto> getListByConditionForUser(int page, int pageSize) {
+
+        Page<Orders> ordersPage =  new Page<>(page,pageSize);
+        Page<OrdersDto> ordersDtoPage = new Page<>();
+        LambdaQueryWrapper<Orders>  ordersLambdaQueryWrapper = new LambdaQueryWrapper<>();
+        ordersLambdaQueryWrapper.orderByDesc(Orders::getOrderTime);
+        this.page(ordersPage,ordersLambdaQueryWrapper);
+
+        BeanUtils.copyProperties(ordersPage,ordersDtoPage,"records");
+
+        List<Orders> records = ordersPage.getRecords();
+
+        List<OrdersDto> ordersDtoRecords = records.stream().map((record) -> {
+            OrdersDto ordersDto = new OrdersDto();
+            BeanUtils.copyProperties(record,ordersDto);
+
+            Long orderId = record.getId();
+            LambdaQueryWrapper<OrderDetail> orderDetailLambdaQueryWrapper = new LambdaQueryWrapper<>();
+            orderDetailLambdaQueryWrapper.eq(OrderDetail::getOrderId,orderId);
+            List<OrderDetail> orderDetails = orderDetailService.list(orderDetailLambdaQueryWrapper);
+
+            ordersDto.setOrderDetails(orderDetails);
+            return ordersDto;
+        }).collect(Collectors.toList());
+
+        ordersDtoPage.setRecords(ordersDtoRecords);
+        return ordersDtoPage;
     }
 }

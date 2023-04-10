@@ -30,7 +30,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (StringUtils.isNotEmpty(phone)){
 //        生成一个四位的验证码
             String code = ValidateCodeUtils.generateValidateCode(4).toString();
-            System.out.println(code);
 
 //        调用阿里云提供的短信服务API完成发送短信
 //            SMSUtils.sendMessage("瑞吉外卖","",phone,code);
